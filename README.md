@@ -1,0 +1,102 @@
+# 智扫通机器人智能客服
+
+基于 **LangChain ReAct 智能体** 的扫地机器人领域智能客服。
+
+用户在前端网页提问，Agent 自主决定调用哪些工具（知识库检索 / 天气 / 用户信息 / 使用记录），结合检索到的资料生成回答；识别到报告需求时自动切换为「报告写手」模式，输出 Markdown 格式的个性化使用报告。
+
+## 它能做什么
+
+| 场景 | 用户输入 | Agent 自主完成 |
+|---|---|---|
+| 知识问答 | 「清扫后地面还有灰尘、碎屑」 | 检索知识库 → 仅基于资料总结答案 |
+| 多工具编排 | 「我这边气温下该怎么保养机器人」 | 依次调用 取位置 → 查天气 → 检索知识库，综合三者回答 |
+| 使用报告 | 「生成我的使用报告」 | 取用户 ID → 取月份 → 触发模式切换 → 取使用记录 → 输出 Markdown 报告 |
+
+三个场景的调用顺序**完全由模型现场判断**，没有一行硬编码的流程控制。
+
+## 架构
+
+```
+app.py  (Streamlit 前端 + 流式展示)
+  └── ReactAgent
+       ├── create_agent(model, system_prompt, tools, middleware)
+       ├── tools ──→ rag_summarize ──→ RagSummarizeService
+       │                                  ├── VectorStoreService (Chroma 检索)
+       │                                  └── PromptTemplate | chat_model | StrOutputParser
+       ├── tools ──→ fetch_external_data ──→ 用户使用记录
+       └── middleware ──→ 日志监控 / 信号检测 / 动态提示词切换
+```
+
+**依赖方向单向：** `app.py → agent → rag → model → utils`，下层永远不知道上层存在。
+
+## 技术栈
+
+| 组件 | 选型 | 作用 |
+|---|---|---|
+| Agent 框架 | LangChain 1.x（底层 LangGraph） | `create_agent` 组装、ReAct 循环、中间件 |
+| 对话模型 | DeepSeek `deepseek-v4-flash` | 思考、决策、生成回答 |
+| 向量模型 | 阿里 DashScope `text-embedding-v4` | 文字 → 1024 维向量 |
+| 向量库 | Chroma（本地持久化） | 知识库向量存储与相似度检索 |
+| Web 前端 | Streamlit | 页面 + 流式输出 |
+| 环境管理 | uv | 虚拟环境 + 依赖锁（`uv.lock`） |
+
+## 快速开始
+
+```bash
+# 1. 安装依赖
+uv sync
+
+# 2. 配置密钥
+cp .env.example .env
+# 编辑 .env，填入 DeepSeek 和 DashScope 的 API Key
+
+# 3. 知识库入库（首次运行；已入库的文件会按 MD5 指纹自动跳过）
+uv run python -m rag.vector_store
+
+# 4. 启动
+uv run streamlit run app.py
+```
+
+浏览器打开 `http://localhost:8501` 即可对话。
+
+> **移动或重命名项目目录后必须重建虚拟环境**：`.venv/Scripts/` 下的命令行工具启动器内嵌绝对路径，
+> 目录一变就全部失效，报 `uv trampoline failed to canonicalize script path`。
+> 执行 `rm -rf .venv && uv sync` 即可修复（若暂时不便重建，`uv run python -m streamlit run app.py` 可绕过）。
+
+## 实现亮点
+
+### 1. 用中间件实现 Agent 运行时干预
+
+三个钩子挂在 ReAct 循环的关键节点上，**不侵入任何业务代码**：
+
+| 中间件 | 挂载点 | 作用 |
+|---|---|---|
+| `@wrap_tool_call` | 每次工具调用 | 日志监控 + 信号检测 |
+| `@before_model` | 每次模型调用前 | 记录消息条数与最新消息类型 |
+| `@dynamic_prompt` | 每轮生成提示词前 | 决定本轮使用哪份系统提示词 |
+
+日志、监控这类需求「横穿」所有工具——直接改代码就要在每个工具里各写一遍。中间件一处编写、全局生效，是横切关注点的标准解法。
+
+### 2. 信号工具 + 运行时上下文 → 零硬编码的业务模式切换
+
+这是本项目最有意思的设计。`fill_context_for_report` 工具本身**什么都不做**，只返回一句确认——它的作用是「信号弹」：
+
+1. **发信号** — 系统提示词规定：判断为报告需求时，必须先调用该工具
+2. **接信号** — `@wrap_tool_call` 监听到这个工具名被调用，在 `runtime.context` 里写入 `report = True`
+3. **换装** — `@dynamic_prompt` 每轮读取这块上下文，一旦为真，把系统提示词从「客服」换成「报告写手」
+
+整个过程**没有 `if 是报告模式: 切换()` 这样的分支**——模型自主打信号弹，基础设施负责接应。同一套工具链支撑两种业务模式，扩展第三种模式只需加一份提示词。
+
+### 3. MD5 指纹增量入库
+
+每个知识文件入库前先算 MD5 指纹并查账本（`md5.txt`），已入库的跳过。重复运行零成本，修改过的文件因指纹变化会被识别为新文件。
+
+## 已知限制
+
+- **外部数据为模拟实现** — `agent/tools/agent_tools.py` 中的天气、用户位置、使用记录是占位数据。工具层是薄壳，替换成真实 API / 数据库不影响 Agent 的编排逻辑。
+- **检索策略单一** — 目前是纯向量检索 + 固定 top-k，未做混合检索与 rerank。
+- **长对话未做上下文裁剪** — `@before_model` 中间件是该功能的预留扩展点。
+
+## 文档
+
+- [开发文档.md](开发文档.md) — 四条核心链路的完整时序、参数总表、排查手册
