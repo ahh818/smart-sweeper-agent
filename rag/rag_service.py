@@ -4,6 +4,7 @@ from langchain_core.documents import Document
 from model.factory import chat_model
 from rag.vector_store import VectorStoreService
 from utils.prompt_loader import load_rag_prompt
+from utils.logger_handler import logger
 
 
 class RagSummarizeService(object):
@@ -21,16 +22,16 @@ class RagSummarizeService(object):
         chain = self.prompt_template | self.model | StrOutputParser()
         return chain
 
-    def retriever_docs(self,query:str) -> list[Document]:
+    def retriever_docs(self, query: str) -> list[Document]:
         """检索最相关的文档块"""
         result = self.retriever.invoke(query)
-        print("============ RAG 检索 ============")
-        print("问题：", query)
-        print("命中：", len(result), "条")
+        logger.debug("============ RAG 检索 ============")
+        logger.debug(f"问题：{query}")
+        logger.debug(f"命中：{len(result)} 条")
         for i, doc in enumerate(result):
-            print(f"--- 第 {i + 1} 条 ---")
-            print(doc.page_content)
-            print("来源：", doc.metadata)
+            logger.debug(f"--- 第 {i + 1} 条 ---")
+            logger.debug(doc.page_content)
+            logger.debug(f"来源：{doc.metadata}")
         return result
 
     def rag_summarize(self, query: str) -> str:
