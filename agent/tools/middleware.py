@@ -7,7 +7,7 @@ from utils.config_handler import agent_conf
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 from utils.logger_handler import logger
-from utils.prompt_loader import load_report_prompts,load_system_prompts
+from utils.prompt_loader import load_report_prompts, load_system_prompts, load_thinking_rule
 
 @wrap_tool_call
 def monitor_tool(
@@ -52,8 +52,15 @@ def report_prom_switch(request: ModelRequest) -> str:
     is_report = request.runtime.context.get("report", False)
     if is_report:
         logger.info("[report_prom_switch]检测到报告模式标记，切换到报告写手提示词")
-        return load_report_prompts()
-    return load_system_prompts()
+        prompt = load_report_prompts()
+    else:
+        prompt = load_system_prompts()
+
+    # 思考过程输出开关：与业务模式正交的运行时维度
+    if agent_conf["show_thinking"]:
+        prompt += "\n\n" + load_thinking_rule()
+
+    return prompt
 
 @before_model
 def trim_history(state: AgentState, runtime: Runtime):

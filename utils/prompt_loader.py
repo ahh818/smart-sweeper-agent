@@ -21,9 +21,17 @@ def load_report_prompts() -> str:
     with open(report_prompt_path, "r", encoding="utf-8") as f:
         return f.read()
 
+def load_thinking_rule() -> str:
+    """读取思考过程输出规则"""
+    thinking_rule_path = get_abs_path(prompts_conf["thinking_rule_path"])
+    with open(thinking_rule_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
 if __name__ == '__main__':
     print(load_system_prompts()[:60])
     print("---")
     print(load_report_prompts()[:60])
     print("---")
+    print(load_thinking_rule()[:60])
     print(load_rag_prompt()[:60])
