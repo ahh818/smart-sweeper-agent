@@ -32,7 +32,8 @@ if prompt:
 
     with st.spinner("智能客服思考中..."):
 
-        res_stream = st.session_state["agent"].execute_stream(prompt)
+        # 传整段会话（末尾已是用户本次提问），让 Agent 能看到前文
+        res_stream = st.session_state["agent"].execute_stream(st.session_state["messages"])
 
         def capture(generator, cache_list):
             for chunk in generator:

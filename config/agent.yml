@@ -1,1 +1,2 @@
 external_data_path: data/external/records.csv
+max_history_messages: 20

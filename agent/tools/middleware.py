@@ -2,7 +2,8 @@ from typing import Callable
 from langchain.agents import AgentState
 from langchain.agents.middleware import before_model,dynamic_prompt,wrap_tool_call,ModelRequest
 from langchain.tools.tool_node import ToolCallRequest
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import RemoveMessage,ToolMessage
+from utils.config_handler import agent_conf
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 from utils.logger_handler import logger
@@ -54,5 +55,20 @@ def report_prom_switch(request: ModelRequest) -> str:
         return load_report_prompts()
     return load_system_prompts()
 
+@before_model
+def trim_history(state: AgentState, runtime: Runtime):
+    """上下文裁剪：消息数超过上限时，移除最早的部分"""
+    messages = state["messages"]
+    limit = agent_conf["max_history_messages"]
+    if len(messages) <= limit:
+        return None
 
+    keep_from = len(messages) - limit
+    # 不能以 ToolMessage 开头——它的 AIMessage 父消息已被裁掉，孤儿 ToolMessage 会让 API 报错
+    while keep_from < len(messages) and isinstance(messages[keep_from], ToolMessage):
+        keep_from += 1
+
+    to_remove = messages[:keep_from]
+    logger.info(f"[trim_history]消息 {len(messages)} 条超过上限 {limit}，裁剪最早 {len(to_remove)} 条")
+    return {"messages": [RemoveMessage(id=m.id) for m in to_remove]}
 
