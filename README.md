@@ -31,7 +31,7 @@ app.py  (Streamlit 前端 + 流式展示)
        │                                  ├── VectorStoreService (Chroma 检索)
        │                                  └── PromptTemplate | chat_model | StrOutputParser
        ├── tools ──→ fetch_external_data ──→ 用户使用记录
-       └── middleware ──→ 日志监控 / 信号检测 / 动态提示词切换
+       └── middleware ──→ 日志监控 / 上下文裁剪 / 信号检测 / 动态提示词切换
 ```
 
 **依赖方向单向：** `app.py → agent → rag → model → utils`，下层永远不知道上层存在。
@@ -74,13 +74,14 @@ uv run streamlit run app.py
 
 ### 1. 用中间件实现 Agent 运行时干预
 
-三个钩子挂在 ReAct 循环的关键节点上，**不侵入任何业务代码**：
+四个钩子挂在 ReAct 循环的关键节点上，**不侵入任何业务代码**：
 
 | 中间件 | 挂载点 | 作用 |
 |---|---|---|
 | `@wrap_tool_call` | 每次工具调用 | 日志监控 + 信号检测 |
 | `@before_model` | 每次模型调用前 | 记录消息条数与最新消息类型 |
 | `@dynamic_prompt` | 每轮生成提示词前 | 决定本轮使用哪份系统提示词 |
+| `@before_model`（trim_history） | 每次模型调用前 | 消息数超上限时裁剪最早的部分 |
 
 日志、监控这类需求「横穿」所有工具——直接改代码就要在每个工具里各写一遍。中间件一处编写、全局生效，是横切关注点的标准解法。
 
@@ -94,7 +95,21 @@ uv run streamlit run app.py
 
 整个过程**没有 `if 是报告模式: 切换()` 这样的分支**——模型自主打信号弹，基础设施负责接应。同一套工具链支撑两种业务模式，扩展第三种模式只需加一份提示词。
 
-### 3. MD5 指纹增量入库
+### 3. 长对话上下文自动裁剪
+
+多轮对话会让消息持续累积，最终超出模型上下文。裁剪放在 `@before_model`
+中间件里，在每次模型调用前统一处理。实现上有两个不显然的点：
+
+- **删除要用 `RemoveMessage`，不能直接返回裁剪后的列表。** LangGraph 的
+  `messages` 字段用的是 `add_messages` reducer——**追加语义**。直接返回列表
+  不是"替换"而是"追加"，消息反而越删越多。`RemoveMessage(id=...)` 是 reducer
+  认识的特殊指令，语义是"删掉这条"。
+- **裁剪边界不能落在工具消息上。** ReAct 的消息是成对的 `AIMessage(tool_calls)`
+  → `ToolMessage(结果)`。若裁剪后剩下的部分以 `ToolMessage` 开头，它的父消息
+  已被裁走，形成"孤儿 ToolMessage"，模型 API 会直接返回 400。所以要把开头
+  连续的 `ToolMessage` 一并裁掉。
+
+### 4. MD5 指纹增量入库
 
 每个知识文件入库前先算 MD5 指纹并查账本（`md5.txt`），已入库的跳过。重复运行零成本，修改过的文件因指纹变化会被识别为新文件。
 
@@ -102,7 +117,7 @@ uv run streamlit run app.py
 
 - **外部数据为模拟实现** — `agent/tools/agent_tools.py` 中的天气、用户位置、使用记录是占位数据。工具层是薄壳，替换成真实 API / 数据库不影响 Agent 的编排逻辑。
 - **检索策略单一** — 目前是纯向量检索 + 固定 top-k，未做混合检索与 rerank。
-- **长对话未做上下文裁剪** — `@before_model` 中间件是该功能的预留扩展点。
+
 
 ## 文档
 
