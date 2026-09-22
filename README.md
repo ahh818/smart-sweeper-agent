@@ -30,7 +30,8 @@ app.py  (Streamlit 前端 + 流式展示)
        ├── tools ──→ rag_summarize ──→ RagSummarizeService
        │                                  ├── VectorStoreService (Chroma 检索)
        │                                  └── PromptTemplate | chat_model | StrOutputParser
-       ├── tools ──→ fetch_external_data ──→ 用户使用记录
+       ├── tools ──→ fetch_external_data / get_user_* ──→ SQLite（演示数据）
+       ├── tools ──→ get_weather ──→ Open-Meteo API
        └── middleware ──→ 日志监控 / 上下文裁剪 / 信号检测 / 动态提示词切换
 ```
 
@@ -40,6 +41,8 @@ app.py  (Streamlit 前端 + 流式展示)
 
 | 组件 | 选型 | 作用 |
 |---|---|---|
+| 天气数据 | Open-Meteo（免费，无需 API Key） | 实时天气：气温 / 湿度 / 风向风速 |
+| 外部数据 | SQLite | 用户档案与使用记录（由 CSV 导入） |
 | Agent 框架 | LangChain 1.x（底层 LangGraph） | `create_agent` 组装、ReAct 循环、中间件 |
 | 对话模型 | DeepSeek `deepseek-v4-flash` | 思考、决策、生成回答 |
 | 向量模型 | 阿里 DashScope `text-embedding-v4` | 文字 → 1024 维向量 |
@@ -129,7 +132,11 @@ uv run streamlit run app.py
 
 ## 已知限制
 
-- **外部数据为模拟实现** — `agent/tools/agent_tools.py` 中的天气、用户位置、使用记录是占位数据。工具层是薄壳，替换成真实 API / 数据库不影响 Agent 的编排逻辑。
+- **无用户系统** — 当前用户固定为 `config/agent.yml` 的 `demo_user_id`（演示账号），无登录与多用户隔离。
+  用户档案与使用记录本身存于 SQLite；接入真实用户体系只需替换 `external_data.get_current_user_id()`，
+  上层工具与 Agent 不受影响。
+- **演示数据时间对齐** — `records.csv` 的月份标签在导入时映射到以当前月结尾的最近 12 个月，
+  使报告流程开箱可用。数据内容不变，仅时间标签平移。
 - **检索策略单一** — 目前是纯向量检索 + 固定 top-k，未做混合检索与 rerank。
 
 
