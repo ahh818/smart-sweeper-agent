@@ -2,3 +2,4 @@ external_data_path: data/external/records.csv
 max_history_messages: 20
 show_thinking: true
 external_db_path: data/external/demo.db
+demo_user_id: "1001"

@@ -139,6 +139,14 @@ def get_usage_record(user_id: str, month: str) -> dict | None:
     return {"特征": row["feature"], "效率": row["efficiency"],
             "消耗": row["consumables"], "比较": row["comparison"]}
 
+def get_current_user_id() -> str:
+    """当前用户 ID。
+
+    项目没有用户系统，这里固定返回配置里的演示账号。
+    将来接入真实用户体系时，只改这个函数，上层工具不用动。
+    """
+    return agent_conf["demo_user_id"]
+
 
 if __name__ == '__main__':
     init_schema()

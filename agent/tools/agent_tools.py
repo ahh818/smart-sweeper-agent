@@ -1,5 +1,4 @@
 from rag.rag_service import RagSummarizeService
-import random
 from langchain_core.tools import tool
 from utils.logger_handler import logger
 import httpx
@@ -7,10 +6,6 @@ from agent.tools import external_data
 from datetime import datetime
 
 
-
-
-# ============ 模拟数据（真实项目会换成真实 API / 数据库） ============
-user_ids = ["1001", "1002", "1003", "1004", "1006", "1007", "10086"]
 
 
 # ============ 天气：Open-Meteo（免费，无需 API Key）============
@@ -77,12 +72,12 @@ def get_weather(city: str) -> str:
 
 @tool(description="获取用户所在的城市名称,以纯字符串形式返回")
 def get_user_location() -> str:
-    return random.choice(["深圳", "合肥", "商丘", "郑州"])
+    return external_data.get_user_city(external_data.get_current_user_id())
 
 
 @tool(description="获取用户ID,以纯字符串形式返回")
 def get_user_id() -> str:
-    return random.choice(user_ids)
+    return external_data.get_current_user_id()
 
 @tool(description="获取当前年月,以纯字符串形式返回")
 def get_current_month() -> str:
