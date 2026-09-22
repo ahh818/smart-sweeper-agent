@@ -4,14 +4,13 @@ from langchain_core.tools import tool
 from utils.logger_handler import logger
 import httpx
 from agent.tools import external_data
+from datetime import datetime
 
 
 
 
 # ============ 模拟数据（真实项目会换成真实 API / 数据库） ============
 user_ids = ["1001", "1002", "1003", "1004", "1006", "1007", "10086"]
-month_arr = ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06"]
-# 使用记录"柜子"：模块级，第一次用到时由 generate_external_data 装满
 
 
 # ============ 天气：Open-Meteo（免费，无需 API Key）============
@@ -87,7 +86,7 @@ def get_user_id() -> str:
 
 @tool(description="获取当前年月,以纯字符串形式返回")
 def get_current_month() -> str:
-    return random.choice(month_arr)
+    return datetime.now().strftime("%Y-%m")
 
 # 模块级单例：整个项目共享这一个 RAG 服务
 rag = RagSummarizeService()

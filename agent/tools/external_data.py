@@ -6,6 +6,7 @@
 import csv
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
 
 from utils.config_handler import agent_conf
 from utils.logger_handler import logger
@@ -62,11 +63,34 @@ def init_schema() -> None:
         """)
 
 
+def _recent_months(n: int) -> list[str]:
+    """以当前月结尾的最近 n 个月，升序返回
+
+    例：当前 2026-09、n=3 → ['2026-07', '2026-08', '2026-09']
+    """
+    now = datetime.now()
+    out = []
+    for back in range(n - 1, -1, -1):
+        y, m = now.year, now.month - back
+        while m <= 0:          # 跨年进位：如 2026-02 往前 3 个月 → m=-1 → 2025-11
+            m += 12
+            y -= 1
+        out.append(f"{y:04d}-{m:02d}")
+    return out
+
+
 def load_from_csv() -> None:
     """从 CSV 导入使用记录（幂等：先清空再写入）"""
     csv_path = get_abs_path(agent_conf["external_data_path"])
     with open(csv_path, "r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
+
+    # 月份对齐：CSV 里的月份标签 → 以当前月结尾的最近 N 个月
+    old_months = sorted({r["时间"] for r in rows})
+    mapping = dict(zip(old_months, _recent_months(len(old_months))))
+    new_months = list(mapping.values())
+    logger.info(f"[external_data] 月份对齐: "
+                f"{old_months[0]}~{old_months[-1]} -> {new_months[0]}~{new_months[-1]}")
 
     with _session() as conn:
         conn.execute("DELETE FROM usage_records")
@@ -74,7 +98,7 @@ def load_from_csv() -> None:
             "INSERT INTO usage_records"
             " (user_id, month, feature, efficiency, consumables, comparison)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            [(r["用户ID"], r["时间"], r["特征"], r["清洁效率"],
+            [(r["用户ID"], mapping[r["时间"]], r["特征"], r["清洁效率"],
               r["耗材"], r["对比"]) for r in rows],
         )
 
