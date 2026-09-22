@@ -5,6 +5,10 @@ from utils.logger_handler import logger
 import os
 from utils.config_handler import agent_conf
 from utils.path_tool import get_abs_path
+import httpx
+
+
+
 
 # ============ 模拟数据（真实项目会换成真实 API / 数据库） ============
 user_ids = ["1001", "1002", "1003", "1004", "1006", "1007", "10086"]
@@ -12,9 +16,67 @@ month_arr = ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06"]
 # 使用记录"柜子"：模块级，第一次用到时由 generate_external_data 装满
 external_data = {}
 
-@tool(description="获取指定城市的天气情况")
+# ============ 天气：Open-Meteo（免费，无需 API Key）============
+_GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
+_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+# WMO 天气代码 → 中文描述
+_WMO_CODE = {
+    0: "晴", 1: "晴间多云", 2: "多云", 3: "阴",
+    45: "雾", 48: "雾凇",
+    51: "毛毛雨", 53: "小雨", 55: "中雨",
+    56: "冻毛毛雨", 57: "冻雨",
+    61: "小雨", 63: "中雨", 65: "大雨",
+    66: "冻雨", 67: "强冻雨",
+    71: "小雪", 73: "中雪", 75: "大雪", 77: "雪粒",
+    80: "阵雨", 81: "强阵雨", 82: "暴雨",
+    85: "阵雪", 86: "强阵雪",
+    95: "雷阵雨", 96: "雷阵雨伴冰雹", 99: "强雷暴伴冰雹",
+}
+
+_WIND_DIRS = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"]
+
+
+def _wind_direction(degrees: float) -> str:
+    """风向角度 → 八方位中文"""
+    return _WIND_DIRS[round(degrees / 45) % 8] + "风"
+
+
+@tool(description="获取指定城市的实时天气情况")
 def get_weather(city: str) -> str:
-    return f"{city}的天气是晴天，温度是25度，风向是东风，风级是3级"
+    """两步调用 Open-Meteo：地理编码拿经纬度 → 取实时天气"""
+    try:
+        geo = httpx.get(
+            _GEO_URL,
+            params={"name": city, "count": 1, "language": "zh"},
+            timeout=8,
+        ).json()
+        results = geo.get("results")
+        if not results:
+            logger.warning(f"[get_weather] 找不到城市: {city}")
+            return ""
+        loc = results[0]
+
+        fc = httpx.get(
+            _FORECAST_URL,
+            params={
+                "latitude": loc["latitude"],
+                "longitude": loc["longitude"],
+                "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,"
+                           "wind_direction_10m,weather_code",
+                "timezone": "auto",
+            },
+            timeout=8,
+        ).json()
+        cur = fc["current"]
+
+        desc = _WMO_CODE.get(cur["weather_code"], f"未知天气({cur['weather_code']})")
+        return (f"{loc['name']}：{desc}，气温 {cur['temperature_2m']}°C，"
+                f"相对湿度 {cur['relative_humidity_2m']}%，"
+                f"{_wind_direction(cur['wind_direction_10m'])} {cur['wind_speed_10m']} km/h")
+    except Exception as e:
+        logger.error(f"[get_weather] 获取 {city} 天气失败: {e}")
+        return ""
 
 @tool(description="获取用户所在的城市名称,以纯字符串形式返回")
 def get_user_location() -> str:
