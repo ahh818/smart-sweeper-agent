@@ -5,6 +5,7 @@
 """
 import csv
 import sqlite3
+from contextlib import contextmanager
 
 from utils.config_handler import agent_conf
 from utils.logger_handler import logger
@@ -20,15 +21,30 @@ def _db_path() -> str:
 
 
 def _connect() -> sqlite3.Connection:
-    """每次开一个短连接。SQLite 是嵌入式数据库，短连接可避开多线程/多进程并发问题"""
+    """建一个连接。SQLite 是嵌入式数据库；用短连接可避开多线程/多进程并发问题"""
     conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 
 
+@contextmanager
+def _session():
+    """一次数据库会话：正常提交 / 异常回滚 / 无论如何都关闭连接
+
+    注意 `with sqlite3_conn:` 只管事务语义（正常提交、异常回滚），
+    **不负责关闭连接**——所以关闭要放在 finally 里显式做。
+    """
+    conn = _connect()
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
 def init_schema() -> None:
     """建表（已存在则跳过）"""
-    with _connect() as conn:
+    with _session() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id TEXT PRIMARY KEY,
@@ -52,7 +68,7 @@ def load_from_csv() -> None:
     with open(csv_path, "r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
-    with _connect() as conn:
+    with _session() as conn:
         conn.execute("DELETE FROM usage_records")
         conn.executemany(
             "INSERT INTO usage_records"
@@ -75,7 +91,7 @@ def load_from_csv() -> None:
 
 def get_user_city(user_id: str) -> str:
     """查用户所在城市；用户不存在返回空字符串"""
-    with _connect() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT city FROM users WHERE user_id = ?", (user_id,)
         ).fetchone()
@@ -87,7 +103,7 @@ def get_user_city(user_id: str) -> str:
 
 def get_usage_record(user_id: str, month: str) -> dict | None:
     """查使用记录；未找到返回 None"""
-    with _connect() as conn:
+    with _session() as conn:
         row = conn.execute(
             "SELECT feature, efficiency, consumables, comparison"
             " FROM usage_records WHERE user_id = ? AND month = ?",
@@ -103,7 +119,7 @@ def get_usage_record(user_id: str, month: str) -> dict | None:
 if __name__ == '__main__':
     init_schema()
     load_from_csv()
-    with _connect() as conn:
+    with _session() as conn:
         n = conn.execute("SELECT COUNT(*) FROM usage_records").fetchone()[0]
         months = [r[0] for r in conn.execute(
             "SELECT DISTINCT month FROM usage_records ORDER BY month")]
