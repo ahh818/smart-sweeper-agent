@@ -60,6 +60,9 @@ cp .env.example .env
 # 3. 知识库入库（首次运行；已入库的文件会按 MD5 指纹自动跳过）
 uv run python -m rag.vector_store
 
+# 3.5 初始化演示数据库（可选：CSV 变更后重跑）
+uv run python -m agent.tools.external_data
+
 # 4. 启动
 uv run streamlit run app.py
 ```

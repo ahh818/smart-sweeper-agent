@@ -2,10 +2,8 @@ from rag.rag_service import RagSummarizeService
 import random
 from langchain_core.tools import tool
 from utils.logger_handler import logger
-import os
-from utils.config_handler import agent_conf
-from utils.path_tool import get_abs_path
 import httpx
+from agent.tools import external_data
 
 
 
@@ -14,7 +12,7 @@ import httpx
 user_ids = ["1001", "1002", "1003", "1004", "1006", "1007", "10086"]
 month_arr = ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06"]
 # 使用记录"柜子"：模块级，第一次用到时由 generate_external_data 装满
-external_data = {}
+
 
 # ============ 天气：Open-Meteo（免费，无需 API Key）============
 _GEO_URL = "https://geocoding-api.open-meteo.com/v1/search"
@@ -98,45 +96,12 @@ rag = RagSummarizeService()
 def rag_summarize(query: str) -> str:
     return rag.rag_summarize(query)
 
-def generate_external_data():
-    """把 CSV 使用记录读进内存，做成二维字典
-    结构: external_data[用户ID][月份] = {"特征":..., "效率":..., "消耗":..., "比较":...}
-    """
-    if not external_data:                                   # 只加载一次
-        external_data_path = get_abs_path(agent_conf["external_data_path"])
 
-        if not os.path.exists(external_data_path):
-            raise FileExistsError(f"文件不存在: {external_data_path}")
-
-        with open(external_data_path, "r", encoding="utf-8") as f:
-            for line in f.readlines()[1:]:                  # [1:] 跳过表头
-                arr = line.strip().split(",")
-
-                user_id = arr[0].replace('"', '')
-                feature = arr[1].replace('"', '')
-                efficiency = arr[2].replace('"', '')
-                consumables = arr[3].replace('"', '')
-                comparison = arr[4].replace('"', '')
-                time = arr[5].replace('"', '')
-
-                if user_id not in external_data:
-                    external_data[user_id] = {}
-
-                external_data[user_id][time] = {
-                    "特征": feature,
-                    "效率": efficiency,
-                    "消耗": consumables,
-                    "比较": comparison,
-                }
 
 @tool(description="从外部系统获取指定用户在指定月份的使用记录，以纯字符串形式返回，未检索到则返回空字符串")
 def fetch_external_data(user_id: str, month: str) -> str:
-    generate_external_data()   # 确保"柜子"已装好（惰性加载的入口）
-    try:
-        return str(external_data[user_id][month])
-    except KeyError:
-        logger.warning(f"用户ID: {user_id}, 月份: {month} 不存在，未能检索到数据")
-        return ""
+    record = external_data.get_usage_record(user_id, month)
+    return str(record) if record else ""
 
 @tool(description="仅在用户明确要求生成/查询个人使用报告时调用；调用后触发系统切换到报告生成模式，无入参、无返回值")
 def fill_context_for_report() -> str:
